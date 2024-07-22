@@ -7,7 +7,7 @@ import time as _time
 
 from yfinance import shared, utils
 from yfinance.const import _BASE_URL_, _PRICE_COLNAMES_
-from yfinance.exceptions import YFChartError, YFInvalidPeriodError, YFPricesMissingError, YFTzMissingError
+from yfinance.exceptions import YFInvalidPeriodError, YFPricesMissingError, YFTzMissingError
 
 class PriceHistory:
     def __init__(self, data, ticker, tz, session=None, proxy=None):
@@ -164,7 +164,6 @@ class PriceHistory:
 
         intraday = params["interval"][-1] in ("m", 'h')
         _price_data_debug = ''
-        _exception = YFPricesMissingError(self.ticker, '')
         if start or period is None or period.lower() == "max":
             _price_data_debug += f' ({params["interval"]} '
             if start_user is not None:
@@ -185,14 +184,18 @@ class PriceHistory:
 
         fail = False
         if data is None or not isinstance(data, dict):
+            _exception = YFPricesMissingError(self.ticker, _price_data_debug)
             fail = True
         elif isinstance(data, dict) and 'status_code' in data:
             _price_data_debug += f"(Yahoo status_code = {data['status_code']})"
+            _exception = YFPricesMissingError(self.ticker, _price_data_debug)
             fail = True
         elif "chart" in data and data["chart"]["error"]:
-            _exception = YFChartError(self.ticker, data["chart"]["error"]["description"])
+            _price_data_debug += ' (Yahoo error = "' + data["chart"]["error"]["description"] + '")'
+            _exception = YFPricesMissingError(self.ticker, _price_data_debug)
             fail = True
-        elif "chart" not in data or data["chart"]["result"] is None or not data["chart"]["result"]:
+        elif "chart" not in data or data["chart"]["result"] is None or not data["chart"]["result"] or not data["chart"]["result"][0]["indicators"]["quote"][0]:
+            _exception = YFPricesMissingError(self.ticker, _price_data_debug)
             fail = True
         elif period is not None and period not in self._history_metadata["validRanges"]:
             # even if timestamp is in the data, the data doesn't encompass the period requested
@@ -200,11 +203,8 @@ class PriceHistory:
             _exception = YFInvalidPeriodError(self.ticker, period, self._history_metadata['validRanges'])
             fail = True
 
-        if isinstance(_exception, YFPricesMissingError):
-            _exception = YFPricesMissingError(self.ticker, _price_data_debug)
-
-        err_msg = str(_exception)
         if fail:
+            err_msg = str(_exception)
             shared._DFS[self.ticker] = utils.empty_df()
             shared._ERRORS[self.ticker] = err_msg.split(': ', 1)[1]
             if raise_errors:
@@ -216,23 +216,12 @@ class PriceHistory:
             return utils.empty_df()
 
         # parse quotes
-        try:
-            quotes = utils.parse_quotes(data["chart"]["result"][0])
-            # Yahoo bug fix - it often appends latest price even if after end date
-            if end and not quotes.empty:
-                endDt = pd.to_datetime(end, unit='s')
-                if quotes.index[quotes.shape[0] - 1] >= endDt:
-                    quotes = quotes.iloc[0:quotes.shape[0] - 1]
-        except Exception:
-            shared._DFS[self.ticker] = utils.empty_df()
-            shared._ERRORS[self.ticker] = err_msg.split(': ', 1)[1]
-            if raise_errors:
-                raise _exception
-            else:
-                logger.error(err_msg)
-            if self._reconstruct_start_interval is not None and self._reconstruct_start_interval == interval:
-                self._reconstruct_start_interval = None
-            return shared._DFS[self.ticker]
+        quotes = utils.parse_quotes(data["chart"]["result"][0])
+        # Yahoo bug fix - it often appends latest price even if after end date
+        if end and not quotes.empty:
+            endDt = pd.to_datetime(end, unit='s')
+            if quotes.index[quotes.shape[0] - 1] >= endDt:
+                quotes = quotes.iloc[0:quotes.shape[0] - 1]
         logger.debug(f'{self.ticker}: yfinance received OHLC data: {quotes.index[0]} -> {quotes.index[-1]}')
 
         # 2) fix weired bug with Yahoo! - returning 60m for 30m bars
@@ -611,7 +600,12 @@ class PriceHistory:
             if min_dt is not None:
                 fetch_start = max(min_dt.date(), fetch_start)
             logger.debug(f"Fetching {sub_interval} prepost={prepost} {fetch_start}->{fetch_end}")
+            # Temp disable erors printing
+            logger = utils.get_yf_logger()
+            log_level = logger.level
+            logger.setLevel(logging.CRITICAL)
             df_fine = self.history(start=fetch_start, end=fetch_end, interval=sub_interval, auto_adjust=False, actions=True, prepost=prepost, repair=True, keepna=True)
+            logger.setLevel(log_level)
             if df_fine is None or df_fine.empty:
                 msg = f"Cannot reconstruct {interval} block starting"
                 if intraday:
@@ -809,6 +803,8 @@ class PriceHistory:
                     df_v2.loc[idx, "Volume"] = df_new_row["Volume"]
                 df_v2.loc[idx, "Repaired?"] = True
                 n_fixed += 1
+
+            # Not logging these reconstructions - that's job of calling function as it has context.
 
         return df_v2
 
@@ -1052,7 +1048,7 @@ class PriceHistory:
                 close_diff.iloc[0] = 0
                 close_chg_pct_abs = np.abs(close_diff / df2['Close'])
                 f_bad_price_chg = (close_chg_pct_abs > 0.05).to_numpy() & f_vol_zero
-                f_bad_price_chg = f_bad_price_chg & (~f_vol_bad)  # exclude where already know volume is bad
+                # f_bad_price_chg = f_bad_price_chg & (~f_vol_bad)  # exclude where already know volume is bad
                 f_vol_bad = f_vol_bad | f_bad_price_chg
 
         # If stock split occurred, then trading must have happened.
@@ -1185,7 +1181,7 @@ class PriceHistory:
             adj = 1.0 - df2['Dividends'].iloc[last_div_idx] / close_day_before
             div = last_div_row['Dividends']
             msg = f'Correcting missing div-adjustment preceding div = {div} @ {last_div_dt.date()} (prev_dt={prev_dt})'
-            logger.debug('div-adjust-repair: ' + msg)
+            logger.info('price-repair-dividend: ' + msg)
 
             if interval == '1d':
                 # exclusive
