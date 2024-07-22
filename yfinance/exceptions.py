@@ -30,7 +30,7 @@ class YFPricesMissingError(YFTickerMissingError):
         if debug_info != '':
             super().__init__(ticker, f"no price data found {debug_info}")
         else:
-            super().__init__(ticker, f"no price data found")
+            super().__init__(ticker, "no price data found")
 
 
 class YFEarningsDateMissing(YFTickerMissingError):
