@@ -470,7 +470,7 @@ class PriceHistory:
         if self._reconstruct_start_interval is None:
             self._reconstruct_start_interval = interval
         if interval != self._reconstruct_start_interval and interval != nexts[self._reconstruct_start_interval]:
-            msg = f"Hit max depth of 2 ('%s'->'%s'->'%s')", self._reconstruct_start_interval, nexts[self._reconstruct_start_interval], interval
+            msg = "Hit max depth of 2 ('%s'->'%s'->'%s')", self._reconstruct_start_interval, nexts[self._reconstruct_start_interval], interval
             logger.info(msg, extra=log_extras)
             return df
 
@@ -577,8 +577,6 @@ class PriceHistory:
                 continue
 
             td_1d = _datetime.timedelta(days=1)
-            end_dt = g[-1]
-            end_d = end_dt.date() + td_1d
             if interval in "1wk":
                 fetch_start = start_d - td_range  # need previous week too
                 fetch_end = g[-1].date() + td_range
@@ -1059,7 +1057,7 @@ class PriceHistory:
         if f_vol_bad is not None:
             f_bad_rows = f_bad_rows | f_vol_bad
         if not f_bad_rows.any():
-            logger.debug(f"No price=0 errors to repair", extra=log_extras)
+            logger.debug("No price=0 errors to repair", extra=log_extras)
             if "Repaired?" not in df.columns:
                 df["Repaired?"] = False
             return df
@@ -1278,7 +1276,7 @@ class PriceHistory:
         # Do not attempt repair of the split is small,
         # could be mistaken for normal price variance
         if 0.8 < split < 1.25:
-            logger.debug(f"Split ratio too close to 1. Won't repair", extra=log_extras)
+            logger.debug("Split ratio too close to 1. Won't repair", extra=log_extras)
             return df
 
         df2 = df.copy().sort_index(ascending=False)
@@ -1387,7 +1385,7 @@ class PriceHistory:
             if interval in ['1mo', '3mo']:
                 largest_change_pct *= 2
         if max(split, split_rcp) < 1.0 + largest_change_pct:
-            logger.debug(f"Split ratio too close to normal price volatility. Won't repair", extra=log_extras)
+            logger.debug("Split ratio too close to normal price volatility. Won't repair", extra=log_extras)
             logger.debug(f"sd_pct = {sd_pct:.4f}  largest_change_pct = {largest_change_pct:.4f}", extra=log_extras)
             return df
 
@@ -1461,7 +1459,7 @@ class PriceHistory:
                 else:
                     threshold = _datetime.timedelta(days=threshold_days)
                 if gap_td < threshold:
-                    logger.info(f'100x changes are too soon after stock split events, aborting', extra=log_extras)
+                    logger.info('100x changes are too soon after stock split events, aborting', extra=log_extras)
                     return df
 
         # if logger.isEnabledFor(logging.DEBUG):
